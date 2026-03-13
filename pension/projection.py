@@ -127,7 +127,7 @@ def projicér(
         if not udbet:
             ydelse = 0.0
         elif police.produkt == ProductType.LIVRENTE:
-            livrente_pv = biometri.annuity_pv(alder, marked.rf)
+            livrente_pv = biometri.annuity_pv(alder, marked.rf + 0.01)
             ydelse = depot / (livrente_pv * 12.0) if livrente_pv > 0.0 else 0.0
         else:
             ydelse = police.maanedlig_ydelse
