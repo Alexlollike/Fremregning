@@ -18,17 +18,23 @@ Diskret månedlig fremregning. $t$ er månedsnummer fra 0. Alder ved trin $t$: $
 
 ## Depotfremregning
 
-### Alle produkter i opsparingsperioden
+### Opsparingsperiode (alle produkter)
 
 $$D_{t+1} = \bigl(D_t + \pi - \delta_{\text{liv},t}\bigr) \cdot (1 + r_t) \cdot (1 - \alpha) - U_t$$
 
 ### Livrente i udbetalingsperiode (uden tilbagebetalingsgaranti)
 
-Dødelighedsgevinster tilfalder overlevende forsikringstagere:
+Dødsfaldsdækning er ophørt: $\delta_{\text{liv},t} = 0$. Dødelighedsgevinster tilfalder overlevende forsikringstagere:
 
-$$D_{t+1} = \bigl(D_t + \pi - \delta_{\text{liv},t}\bigr) \cdot (1 + r_t + \mu_t) \cdot (1 - \alpha) - U_t$$
+$$D_{t+1} = D_t \cdot (1 + r_t + \mu_t) \cdot (1 - \alpha) - U_t$$
 
 hvor $\mu_t = \mu(x + t/12)/12$.
+
+### Ratepension/aldersopsparing i udbetalingsperiode
+
+Dødsfaldsdækning er ophørt: $\delta_{\text{liv},t} = 0$. Ingen dødelighedsgevinster:
+
+$$D_{t+1} = D_t \cdot (1 + r_t) \cdot (1 - \alpha) - U_t$$
 
 ---
 
@@ -36,11 +42,13 @@ hvor $\mu_t = \mu(x + t/12)/12$.
 
 **Trin 1 — Nettorisiko og risikopræmie:**
 
+Kun i opsparingsperioden:
+
 $$R_t = S - D_t$$
 $$\delta_{\text{liv},t} = \mu_t \cdot R_t$$
 $$D_t^* = D_t + \pi - \delta_{\text{liv},t}$$
 
-Gælder for alle produkter i opsparingsperioden. Negative $R_t$ er tilladt og fortolkes som dødelighedsgevinst til policen. Livrente i udbetalingsperioden anvender i stedet dødelighedsgevinsten i Trin 2.
+Negative $R_t$ er tilladt og fortolkes som dødelighedsgevinst til policen. I udbetalingsperioden bortfalder dødsfaldsdækningen og $\delta_{\text{liv},t} = 0$.
 
 **Trin 2 — Investeringsafkast:**
 
