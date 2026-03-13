@@ -67,7 +67,7 @@ class Policy:
         t : int
             Månedsnummer fra 0.
         """
-        pass
+        return self.alder_ved_trin(t) >= self.udbetalingsstart_alder
 
     def alder_ved_trin(self, t: int) -> float:
         """
@@ -78,4 +78,4 @@ class Policy:
         t : int
             Månedsnummer fra 0.
         """
-        pass
+        return self.alder + t / 12
