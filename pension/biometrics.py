@@ -11,6 +11,8 @@ Ansvar:
 
 from __future__ import annotations
 
+import math
+
 
 class BiometricModel:
     """
@@ -32,7 +34,9 @@ class BiometricModel:
     """
 
     def __init__(self, A: float, B: float, c: float) -> None:
-        pass
+        self.A = A
+        self.B = B
+        self.c = c
 
     def intensitet(self, alder: float) -> float:
         """
@@ -48,7 +52,7 @@ class BiometricModel:
         float
             Kontinuert dødelighedsintensitet (per år).
         """
-        pass
+        return self.A + self.B * self.c ** alder
 
     def maanedlig_intensitet(self, alder: float) -> float:
         """
@@ -66,7 +70,7 @@ class BiometricModel:
         float
             Månedlig dødelighedsintensitet (dimensionsløs).
         """
-        pass
+        return self.intensitet(alder) / 12
 
     def annuity_pv(self, alder: float, rente: float) -> float:
         """
@@ -88,4 +92,15 @@ class BiometricModel:
         float
             Nutidsværdi af livsvarig livrente (ä_{x+t} i enheder af 1 kr./måned).
         """
-        pass
+        max_months = int((120.0 - alder) * 12)
+        v = 1.0 / (1.0 + rente / 12.0)
+        pv = 0.0
+        kpx = 1.0  # k_p_x: sandsynlighed for at overleve k måneder fra alder
+        vk = 1.0   # v^k
+        for k in range(max_months + 1):
+            pv += kpx * vk
+            kpx *= math.exp(-self.maanedlig_intensitet(alder + k / 12.0))
+            vk *= v
+            if kpx < 1e-10:
+                break
+        return pv

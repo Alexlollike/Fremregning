@@ -11,8 +11,11 @@ Ansvar:
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from pathlib import Path
 from typing import Sequence
+
+import pandas as pd
 
 from pension.projection import TrinResultat
 
@@ -34,7 +37,7 @@ def trin_til_dataframe(resultater: Sequence[TrinResultat]):
     pandas.DataFrame
         DataFrame med én række per tidstrin.
     """
-    pass
+    return pd.DataFrame([asdict(r) for r in resultater])
 
 
 def portefølje_til_dataframe(alle_resultater: Sequence[Sequence[TrinResultat]]):
@@ -51,7 +54,8 @@ def portefølje_til_dataframe(alle_resultater: Sequence[Sequence[TrinResultat]])
     pandas.DataFrame
         Aggregeret DataFrame med police-id som indeks.
     """
-    pass
+    frames = [trin_til_dataframe(resultater) for resultater in alle_resultater]
+    return pd.concat(frames, keys=range(len(frames)), names=["police_id", "trin"])
 
 
 def gem_csv(df, sti: Path | str) -> None:
@@ -65,4 +69,4 @@ def gem_csv(df, sti: Path | str) -> None:
     sti : Path or str
         Destinationssti for CSV-filen.
     """
-    pass
+    df.to_csv(sti, index=False)

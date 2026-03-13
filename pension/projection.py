@@ -24,7 +24,7 @@ from typing import Sequence
 
 from pension.biometrics import BiometricModel
 from pension.market import MarketAssumptions
-from pension.policy import Policy
+from pension.policy import Policy, ProductType
 
 
 @dataclass
@@ -100,7 +100,63 @@ def projicér(
     list[TrinResultat]
         Liste med ét `TrinResultat` per trin (længde = antal_trin).
     """
-    pass
+    resultater: list[TrinResultat] = []
+    depot = police.depot
+
+    for t in range(antal_trin):
+        alder = police.alder_ved_trin(t)
+        mu_t = biometri.maanedlig_intensitet(alder)
+        epsilon = epsilons[t] if epsilons is not None else 0.0
+        r_t = marked.afkast(epsilon)
+        udbet = police.er_i_udbetalingsperiode(t)
+
+        # Trin 1 — nettorisiko og risikopræmie
+        if not udbet:
+            nettorisiko = police.doedsfaldssum - depot
+            risikopraemie = mu_t * nettorisiko
+            depot_star = depot + police.praemie - risikopraemie
+        else:
+            nettorisiko = 0.0
+            risikopraemie = 0.0
+            depot_star = depot  # δ=0, π=0 i udbetalingsperiode
+
+        # Trin 4 — PAL-skat (påvirker ikke depotet)
+        pal_skat = (0.153 / 12.0) * max(depot_star * r_t, 0.0)
+
+        # Trin 5 — udbetaling
+        if not udbet:
+            ydelse = 0.0
+        elif police.produkt == ProductType.LIVRENTE:
+            livrente_pv = biometri.annuity_pv(alder, marked.rf)
+            ydelse = depot / (livrente_pv * 12.0) if livrente_pv > 0.0 else 0.0
+        else:
+            ydelse = police.maanedlig_ydelse
+
+        # Trin 2+3 — afkast og depotomkostning → D_{t+1}
+        if not udbet:
+            depot_efter = depot_star * (1.0 + r_t) * (1.0 - police.omkostningspct) - ydelse
+        elif police.produkt == ProductType.LIVRENTE:
+            depot_efter = depot * (1.0 + r_t + mu_t) * (1.0 - police.omkostningspct) - ydelse
+        else:
+            depot_efter = depot * (1.0 + r_t) * (1.0 - police.omkostningspct) - ydelse
+
+        depot_efter = max(depot_efter, 0.0)
+
+        resultater.append(TrinResultat(
+            t=t,
+            alder=alder,
+            depot=depot,
+            depot_efter=depot_efter,
+            doedsintensitet=mu_t,
+            nettorisiko=nettorisiko,
+            risikopraemie=risikopraemie,
+            afkast=r_t,
+            ydelse=ydelse,
+            pal_skat=pal_skat,
+        ))
+        depot = depot_efter
+
+    return resultater
 
 
 def projicér_portefølje(
@@ -128,4 +184,4 @@ def projicér_portefølje(
     list[list[TrinResultat]]
         Ét indre liste-element per police, hvert indeholdende `antal_trin` trin.
     """
-    pass
+    return [projicér(police, marked, biometri, antal_trin) for police in portefølje]

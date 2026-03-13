@@ -11,6 +11,7 @@ Ansvar:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 
@@ -48,7 +49,10 @@ class MarketAssumptions:
         float
             Månedligt afkast r_t (dimensionsløst, f.eks. 0.002 for 0,2 %).
         """
-        pass
+        return math.exp(
+            (self.rf - 0.5 * self.volatilitet ** 2) / 12.0
+            + self.volatilitet * math.sqrt(1.0 / 12.0) * epsilon
+        ) - 1.0
 
     def deterministisk_afkast(self) -> float:
         """
@@ -61,4 +65,4 @@ class MarketAssumptions:
         float
             Månedligt certainty-equivalent afkast.
         """
-        pass
+        return self.afkast(0.0)
