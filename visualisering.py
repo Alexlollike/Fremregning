@@ -2,9 +2,9 @@
 visualisering.py — deterministisk fremregning og depot-visualisering.
 
 Viser to produkter til sammenligning:
-  1. Livrente:     alder 40, depot 100.000 kr, præmie 2.000 kr/md.
+  1. Livrente:     alder 40, depot 100.000 kr, præmie = maks. rateloft × 1,2.
                    Opsparingsperiode til 67 år, livrente-udbetaling til 100 år.
-  2. Ratepension:  alder 40, depot 100.000 kr, præmie 2.000 kr/md.
+  2. Ratepension:  alder 40, depot 100.000 kr, præmie = maks. rateloft (PBL § 16).
                    Opsparingsperiode til 67 år, rateudbetaling over 15 år (67–82 år).
 """
 
@@ -15,7 +15,7 @@ import matplotlib.ticker as mticker
 
 from pension.biometrics import BiometricModel
 from pension.market import MarketAssumptions
-from pension.policy import Policy, ProductType
+from pension.policy import Policy, ProductType, RATEPENSION_INDBETALINGSLOFT
 from pension.projection import projicér
 from pension.output import trin_til_dataframe
 
@@ -27,12 +27,16 @@ biometri = BiometricModel(A=0.0005, B=0.00007585775, c=1.09144)
 # Marked: 4 % rente, deterministisk (ε=0)
 marked = MarketAssumptions(rf=0.04, volatilitet=0.15)
 
+# Præmier: ratepension = maks. loft, livrente = 20 % højere
+praemie_rate = RATEPENSION_INDBETALINGSLOFT / 12          # 5.725 kr/md
+praemie_livrente = praemie_rate * 1.20                    # 6.870 kr/md
+
 # Policy 1: Livrente, alder 40, opsparingsstart
 police_livrente = Policy(
     alder=40.0,
     depot=100_000.0,
     doedsfaldssum=500_000.0,
-    praemie=2_000.0,
+    praemie=praemie_livrente,
     omkostningspct=0.005 / 12.0,   # 0,5 % p.a. månedligt fratrukket
     produkt=ProductType.LIVRENTE,
     udbetalingsstart_alder=67.0,
@@ -43,7 +47,7 @@ police_rate = Policy(
     alder=40.0,
     depot=100_000.0,
     doedsfaldssum=500_000.0,
-    praemie=2_000.0,
+    praemie=praemie_rate,
     omkostningspct=0.005 / 12.0,
     produkt=ProductType.RATEPENSION,
     udbetalingsstart_alder=67.0,
@@ -64,8 +68,8 @@ udbet_start = police_livrente.udbetalingsstart_alder
 
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
 fig.suptitle(
-    "Deterministisk fremregning — livrente vs. ratepension (alder 40, rf=4 %, α=0,5 % p.a.)",
-    fontsize=13,
+    f"Deterministisk fremregning — livrente ({praemie_livrente:,.0f} kr/md) vs. ratepension ({praemie_rate:,.0f} kr/md)  |  rf=4 %, α=0,5 % p.a.",
+    fontsize=12,
 )
 
 aldre_l = df_livrente["alder"].values
