@@ -38,7 +38,6 @@ def test_policy_has_required_fields():
         "omkostningspct",
         "produkt",
         "udbetalingsstart_alder",
-        "maanedlig_ydelse",
     }
     assert required <= fields
 
@@ -127,6 +126,8 @@ def test_trin_resultat_has_required_fields():
         "afkast",
         "ydelse",
         "pal_skat",
+        "aldersopsparing_depot",
+        "aldersopsparing_depot_efter",
     }
     assert required <= fields
 

@@ -58,5 +58,15 @@ LIVRENTE_UDBETALING = Policy(
     omkostningspct=0.005 / 12,
     produkt=ProductType.LIVRENTE,
     udbetalingsstart_alder=67.0,
-    maanedlig_ydelse=0.0,
+)
+
+# Aldersopsparing ved pensionering (alder >= udbetalingsstart) — udbetales som éngangsbeløb
+ALDERSOPSPARING_UDBETALING = Policy(
+    alder=67.0,
+    depot=500_000.0,
+    doedsfaldssum=0.0,
+    praemie=0.0,
+    omkostningspct=0.0,
+    produkt=ProductType.ALDERSOPSPARING,
+    udbetalingsstart_alder=67.0,
 )

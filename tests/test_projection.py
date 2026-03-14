@@ -16,6 +16,7 @@ from tests.fixtures.policies import (
     NULRISIKO_POLICY,
     LIVRENTE_UDBETALING,
     RATEPENSION_UDBETALING,
+    ALDERSOPSPARING_UDBETALING,
 )
 
 
@@ -419,3 +420,92 @@ def test_aarlig_indbetaling_nul_i_udbetalingsperiode():
     resultater = projicér(RATEPENSION_UDBETALING, NUL_MARKED, NUL_BIOMETRI, antal_trin=12)
     for r in resultater:
         assert r.aarlig_indbetaling == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Aldersopsparing: éngangsydelse ved pensionering
+# ---------------------------------------------------------------------------
+
+def test_aldersopsparing_ydelse_ved_forste_udbetalingstrin():
+    """Hele ao_depot udbetales som éngangsydelse i første udbetalingstrin."""
+    d0 = ALDERSOPSPARING_UDBETALING.depot
+    resultater = projicér(ALDERSOPSPARING_UDBETALING, NUL_MARKED, NUL_BIOMETRI, antal_trin=12)
+    assert math.isclose(resultater[0].ydelse, d0, rel_tol=1e-9), (
+        f"Forventet ydelse={d0}, fik {resultater[0].ydelse}"
+    )
+
+
+def test_aldersopsparing_depot_nul_efter_udbetaling():
+    """Depot er 0 fra og med trin 1 (efter éngangsydelsen)."""
+    resultater = projicér(ALDERSOPSPARING_UDBETALING, NUL_MARKED, NUL_BIOMETRI, antal_trin=12)
+    for r in resultater[1:]:
+        assert r.depot == 0.0, f"Trin {r.t}: forventet depot=0, fik {r.depot}"
+
+
+def test_aldersopsparing_ydelse_nul_efter_forste_trin():
+    """Ydelse er 0 i alle trin efter det første (allerede udbetalt)."""
+    resultater = projicér(ALDERSOPSPARING_UDBETALING, NUL_MARKED, NUL_BIOMETRI, antal_trin=12)
+    for r in resultater[1:]:
+        assert r.ydelse == 0.0, f"Trin {r.t}: forventet ydelse=0, fik {r.ydelse}"
+
+
+def test_aldersopsparing_ingen_risikopraemie_i_udbetalingsperiode():
+    """Ingen risikopræmie i udbetalingsperioden (dækning ophørt)."""
+    resultater = projicér(ALDERSOPSPARING_UDBETALING, NUL_MARKED, STANDARD_BIOMETRI, antal_trin=12)
+    for r in resultater:
+        assert r.risikopraemie == 0.0
+        assert r.nettorisiko == 0.0
+
+
+def test_aldersopsparing_ao_depot_sporet_i_opsparingsperiode():
+    """aldersopsparing_depot følger depot i opsparingsperioden."""
+    police = Policy(
+        alder=40.0,
+        depot=100_000.0,
+        doedsfaldssum=0.0,
+        praemie=2_000.0,
+        omkostningspct=0.0,
+        produkt=ProductType.ALDERSOPSPARING,
+        udbetalingsstart_alder=67.0,
+    )
+    resultater = projicér(police, NUL_MARKED, NUL_BIOMETRI, antal_trin=12)
+    for r in resultater:
+        assert math.isclose(r.aldersopsparing_depot, r.depot, rel_tol=1e-12), (
+            f"Trin {r.t}: ao_depot={r.aldersopsparing_depot} != depot={r.depot}"
+        )
+
+
+def test_aldersopsparing_ao_depot_nul_efter_udbetaling():
+    """aldersopsparing_depot_efter er 0 fra og med udbetalingstrinnet."""
+    resultater = projicér(ALDERSOPSPARING_UDBETALING, NUL_MARKED, NUL_BIOMETRI, antal_trin=3)
+    # Trin 0: ao_depot_efter = 0 (udbetalt)
+    assert resultater[0].aldersopsparing_depot_efter == 0.0
+    # Trin 1+: ao_depot = 0 og ao_depot_efter = 0
+    for r in resultater[1:]:
+        assert r.aldersopsparing_depot == 0.0
+        assert r.aldersopsparing_depot_efter == 0.0
+
+
+def test_livrente_ao_depot_nul():
+    """aldersopsparing_depot er 0 for livrente-policer."""
+    resultater = projicér(LIVRENTE_UDBETALING, NUL_MARKED, STANDARD_BIOMETRI, antal_trin=12)
+    for r in resultater:
+        assert r.aldersopsparing_depot == 0.0
+        assert r.aldersopsparing_depot_efter == 0.0
+
+
+def test_aldersopsparing_nettorisiko_nul_med_nul_doedsfaldssum():
+    """Med dødsfaldsum=0 og ao_depot==depot er nettorisiko=0 i opsparingsperioden."""
+    police = Policy(
+        alder=40.0,
+        depot=200_000.0,
+        doedsfaldssum=0.0,
+        praemie=0.0,
+        omkostningspct=0.0,
+        produkt=ProductType.ALDERSOPSPARING,
+        udbetalingsstart_alder=67.0,
+    )
+    resultater = projicér(police, NUL_MARKED, STANDARD_BIOMETRI, antal_trin=1)
+    assert math.isclose(resultater[0].nettorisiko, 0.0, abs_tol=1e-9), (
+        f"Forventet nettorisiko=0, fik {resultater[0].nettorisiko}"
+    )

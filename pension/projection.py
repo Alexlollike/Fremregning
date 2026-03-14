@@ -79,6 +79,14 @@ class TrinResultat:
     ratepension_depot_efter : float
         Fiktivt ratepensionsdepot efter fremregning.
         For RATEPENSION-policer lig depot_efter; 0 for øvrige produkttyper.
+    aldersopsparing_depot : float
+        Aldersopsparingsdepot ved trinstart.
+        For ALDERSOPSPARING-policer lig depot i opsparingsperioden; 0 for øvrige produkttyper.
+        Falder til 0 efter éngangsudbetalingen ved pensionering.
+    aldersopsparing_depot_efter : float
+        Aldersopsparingsdepot efter fremregning.
+        For ALDERSOPSPARING-policer lig depot_efter i opsparingsperioden; 0 for øvrige produkttyper.
+        Er 0 i og efter udbetalingstrinnet.
     dato : date
         Kalenderdato (1. i måneden) svarende til trinstart.
     aarlig_indbetaling : float
@@ -99,6 +107,8 @@ class TrinResultat:
     pal_skat: float
     ratepension_depot: float
     ratepension_depot_efter: float
+    aldersopsparing_depot: float
+    aldersopsparing_depot_efter: float
     dato: date
     aarlig_indbetaling: float
 
@@ -143,6 +153,9 @@ def projicér(
     # Fiktivt ratepensionsdepot: lig det samlede depot for RATEPENSION-policer,
     # 0 for øvrige produkttyper (forberedt til fremtidige kombinerede produkter).
     rp_depot = police.depot if police.produkt == ProductType.RATEPENSION else 0.0
+    # Aldersopsparingsdepot: lig det samlede depot for ALDERSOPSPARING-policer,
+    # 0 for øvrige produkttyper. Falder til 0 ved éngangsudbetalingen.
+    ao_depot = police.depot if police.produkt == ProductType.ALDERSOPSPARING else 0.0
 
     indbetalt_i_aar = 0.0
     current_year = start_dato.year
@@ -159,10 +172,10 @@ def projicér(
         udbet = police.er_i_udbetalingsperiode(t)
 
         # Trin 1 — nettorisiko og risikopræmie
-        # rp_depot ekskluderes fra depotoffsettet: ratepensionsdepotet udbetales
+        # rp_depot og ao_depot ekskluderes fra depotoffsettet: disse depoter udbetales
         # til efterladte ved død og er derfor ikke til rådighed for poolen.
         if not udbet:
-            nettorisiko = police.doedsfaldssum - (depot - rp_depot)
+            nettorisiko = police.doedsfaldssum - (depot - rp_depot - ao_depot)
             risikopraemie = mu_t * nettorisiko
             depot_star = depot + police.praemie - risikopraemie
             indbetalt_i_aar += police.praemie
@@ -190,21 +203,31 @@ def projicér(
             annuitet_pv = ophørende_annuitet_pv(remaining_years, marked.rf)
             ydelse = rp_depot / (annuitet_pv * 12.0) if annuitet_pv > 0.0 else 0.0
         else:
-            ydelse = police.maanedlig_ydelse
+            # ALDERSOPSPARING: éngangsydelse — hele ao_depot udbetales ved pensionering.
+            # ao_depot er 0 for alle efterfølgende trin (allerede udbetalt).
+            ydelse = ao_depot
 
         # Trin 2+3 — afkast og depotomkostning → D_{t+1}
         if not udbet:
             depot_efter = depot_star * (1.0 + r_t) * (1.0 - police.omkostningspct) - ydelse
         elif police.produkt == ProductType.LIVRENTE:
             depot_efter = depot * (1.0 + r_t + mu_t) * (1.0 - police.omkostningspct) - ydelse
-        else:
+        elif police.produkt == ProductType.RATEPENSION:
             depot_efter = depot * (1.0 + r_t) * (1.0 - police.omkostningspct) - ydelse
+        else:
+            # ALDERSOPSPARING: depot er 0 efter éngangsudbetalingen.
+            depot_efter = 0.0
 
         depot_efter = max(depot_efter, 0.0)
 
         # Fiktivt ratepensionsdepot følger samme formel som hoveddepot for
         # standalone RATEPENSION-policer (rp_depot == depot til enhver tid).
         rp_depot_efter = depot_efter if police.produkt == ProductType.RATEPENSION else 0.0
+
+        # Aldersopsparingsdepot er 0 efter udbetalingstrinnet.
+        ao_depot_efter = depot_efter if (
+            police.produkt == ProductType.ALDERSOPSPARING and not udbet
+        ) else 0.0
 
         resultater.append(TrinResultat(
             t=t,
@@ -219,11 +242,14 @@ def projicér(
             pal_skat=pal_skat,
             ratepension_depot=rp_depot,
             ratepension_depot_efter=rp_depot_efter,
+            aldersopsparing_depot=ao_depot,
+            aldersopsparing_depot_efter=ao_depot_efter,
             dato=current_dato,
             aarlig_indbetaling=indbetalt_i_aar,
         ))
         depot = depot_efter
         rp_depot = rp_depot_efter
+        ao_depot = ao_depot_efter
 
     return resultater
 

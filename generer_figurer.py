@@ -268,13 +268,13 @@ police_rp = Policy(
 df_rp = _fremregn(police_rp, slut_alder=82.0)
 
 # Aldersopsparing (præmie = ratepensionsloft, ingen dødsfaldsdækning)
+# Udbetales som éngangsbeløb ved pensionering — depot falder til 0 ved alder 67.
 police_ao = Policy(
     alder=40.0, depot=100_000.0, doedsfaldssum=0.0,
     praemie=praemie_rate, omkostningspct=OMKOSTNINGSPCT,
     produkt=ProductType.ALDERSOPSPARING, udbetalingsstart_alder=67.0,
-    udbetalingsperiode_aar=15,
 )
-df_ao = _fremregn(police_ao, slut_alder=82.0)
+df_ao = _fremregn(police_ao, slut_alder=68.0)
 
 serier_d = [
     dict(x=_alder_serie(df_lv), y=df_lv["depot"].values,
