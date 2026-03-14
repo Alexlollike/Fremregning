@@ -47,9 +47,6 @@ class Policy:
         Produkttype — afgør fremregningsregel i udbetalingsperioden.
     udbetalingsstart_alder : float
         Alder (i år) hvor opsparingsperioden ophører og udbetalingsperioden begynder.
-    maanedlig_ydelse : float, optional
-        Fast månedlig ydelse U_t for aldersopsparing i udbetalingsperioden.
-        Beregnes ved konvertering; sættes til 0.0 indtil da.
     udbetalingsperiode_aar : int, optional
         Antal år ratepensionen udbetales over (10–20 år).
         Kun relevant for RATEPENSION; ignoreres for øvrige produkttyper.
@@ -62,7 +59,6 @@ class Policy:
     omkostningspct: float
     produkt: ProductType
     udbetalingsstart_alder: float
-    maanedlig_ydelse: float = 0.0
     udbetalingsperiode_aar: int = 15
 
     def __post_init__(self) -> None:
