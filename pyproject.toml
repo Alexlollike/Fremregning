@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fremregning"
+version = "0.1.0"
+description = "Aktuariel cashflow-projektionsmodel for unit-link pensionsportefølje"
+requires-python = ">=3.11"
+dependencies = ["pandas"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pension*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
