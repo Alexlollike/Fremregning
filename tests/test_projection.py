@@ -6,8 +6,10 @@ import math
 
 import pytest
 
+from datetime import date
+
 from pension.policy import Policy, ProductType, RATEPENSION_INDBETALINGSLOFT
-from pension.projection import projicér, projicér_portefølje
+from pension.projection import projicér, projicér_portefølje, SIMULATION_START_DATO, _dato_ved_trin
 from tests.fixtures.models import NUL_MARKED, NUL_BIOMETRI, STANDARD_BIOMETRI, STANDARD_MARKED
 from tests.fixtures.policies import (
     STANDARD_RATEPENSION,
@@ -266,3 +268,104 @@ def test_udbetalingsperiode_aar_ugyldig():
                 udbetalingsstart_alder=67.0,
                 udbetalingsperiode_aar=aar,
             )
+
+
+# ---------------------------------------------------------------------------
+# Kalendertid og _dato_ved_trin
+# ---------------------------------------------------------------------------
+
+def test_dato_ved_trin_nul():
+    """t=0 returnerer start_dato uændret."""
+    start = date(2027, 1, 1)
+    assert _dato_ved_trin(start, 0) == date(2027, 1, 1)
+
+
+def test_dato_ved_trin_midt_paa_aar():
+    """t=6 fra januar 2027 → juli 2027."""
+    assert _dato_ved_trin(date(2027, 1, 1), 6) == date(2027, 7, 1)
+
+
+def test_dato_ved_trin_aarsskifte():
+    """t=12 fra januar 2027 → januar 2028."""
+    assert _dato_ved_trin(date(2027, 1, 1), 12) == date(2028, 1, 1)
+
+
+def test_dato_ved_trin_flere_aar():
+    """t=24 fra januar 2027 → januar 2029."""
+    assert _dato_ved_trin(date(2027, 1, 1), 24) == date(2029, 1, 1)
+
+
+def test_simulation_start_dato_er_2027():
+    """Standardstart er 1. januar 2027."""
+    assert SIMULATION_START_DATO == date(2027, 1, 1)
+
+
+# ---------------------------------------------------------------------------
+# aarlig_indbetaling og dato i TrinResultat
+# ---------------------------------------------------------------------------
+
+def test_dato_i_trin_resultat():
+    """TrinResultat indeholder korrekt kalenderdato."""
+    resultater = projicér(STANDARD_RATEPENSION, NUL_MARKED, NUL_BIOMETRI, antal_trin=3)
+    assert resultater[0].dato == date(2027, 1, 1)
+    assert resultater[1].dato == date(2027, 2, 1)
+    assert resultater[2].dato == date(2027, 3, 1)
+
+
+def test_dato_med_brugerdefineret_start():
+    """start_dato-parameteren propageres korrekt."""
+    start = date(2030, 6, 1)
+    resultater = projicér(STANDARD_RATEPENSION, NUL_MARKED, NUL_BIOMETRI,
+                          antal_trin=3, start_dato=start)
+    assert resultater[0].dato == date(2030, 6, 1)
+    assert resultater[1].dato == date(2030, 7, 1)
+    assert resultater[2].dato == date(2030, 8, 1)
+
+
+def test_aarlig_indbetaling_akkumulerer_inden_for_aar():
+    """aarlig_indbetaling vokser med praemie hvert trin i opsparingsperioden."""
+    praemie = 2_000.0
+    police = Policy(
+        alder=40.0,
+        depot=0.0,
+        doedsfaldssum=0.0,
+        praemie=praemie,
+        omkostningspct=0.0,
+        produkt=ProductType.RATEPENSION,
+        udbetalingsstart_alder=67.0,
+        udbetalingsperiode_aar=15,
+    )
+    resultater = projicér(police, NUL_MARKED, NUL_BIOMETRI, antal_trin=12)
+    for i, r in enumerate(resultater):
+        assert math.isclose(r.aarlig_indbetaling, praemie * (i + 1), rel_tol=1e-12), (
+            f"Trin {i}: forventet {praemie * (i + 1):.2f}, fik {r.aarlig_indbetaling:.2f}"
+        )
+
+
+def test_aarlig_indbetaling_nulstilles_ved_nyt_aar():
+    """aarlig_indbetaling nulstilles ved kalenderårsskifte (t=12)."""
+    praemie = 2_000.0
+    police = Policy(
+        alder=40.0,
+        depot=0.0,
+        doedsfaldssum=0.0,
+        praemie=praemie,
+        omkostningspct=0.0,
+        produkt=ProductType.RATEPENSION,
+        udbetalingsstart_alder=67.0,
+        udbetalingsperiode_aar=15,
+    )
+    resultater = projicér(police, NUL_MARKED, NUL_BIOMETRI, antal_trin=14)
+    # t=11 (december 2027): 12 × praemie
+    assert math.isclose(resultater[11].aarlig_indbetaling, 12 * praemie, rel_tol=1e-12)
+    # t=12 (januar 2028): nulstillet → 1 × praemie
+    assert math.isclose(resultater[12].aarlig_indbetaling, praemie, rel_tol=1e-12)
+    # t=13 (februar 2028): 2 × praemie
+    assert math.isclose(resultater[13].aarlig_indbetaling, 2 * praemie, rel_tol=1e-12)
+
+
+def test_aarlig_indbetaling_nul_i_udbetalingsperiode():
+    """aarlig_indbetaling er 0 i udbetalingsperioden (ingen præmier)."""
+    resultater = projicér(RATEPENSION_UDBETALING, NUL_MARKED, NUL_BIOMETRI, antal_trin=12)
+    for r in resultater:
+        assert r.aarlig_indbetaling == 0.0
