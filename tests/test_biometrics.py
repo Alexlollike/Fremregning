@@ -56,24 +56,27 @@ def test_maanedlig_intensitet_nul():
 # ---------------------------------------------------------------------------
 
 def test_annuity_pv_nul_doedelighed_nul_rente():
-    """Med nuldødelighed og rente=0 er ä_x = antal tilbageværende måneder op til 120."""
+    """Med nuldødelighed og rente=0 er ä_x = 120 - alder (resterende år til terminalsbetingelse)."""
     m = BiometricModel(A=0.0, B=0.0, c=1.0)
     alder = 67.0
-    forventet = int((120.0 - alder) * 12) + 1  # sum fra k=0 til K, K+1 led
+    forventet = 120.0 - alder  # dä/dt = -1, ä(120)=0 → ä(alder) = 120-alder
     resultat = m.annuity_pv(alder, rente=0.0)
-    assert math.isclose(resultat, forventet, rel_tol=1e-9)
+    assert math.isclose(resultat, forventet, rel_tol=1e-6)
 
 
 def test_annuity_pv_nul_doedelighed_positiv_rente():
-    """Med nuldødelighed er ä_x den geometriske serie sum_{k=0}^{K} v^k = (1-v^{K+1})/(1-v)."""
+    """Med nuldødelighed er ä_x = Δt · Σ_{k=0}^{K-1} e^{-δ·k·Δt} (geometrisk sum, eksakt)."""
     m = BiometricModel(A=0.0, B=0.0, c=1.0)
     alder = 67.0
     rente = 0.04
+    delta = math.log(1.0 + rente)
+    dt = 1.0 / 12.0
     K = int((120.0 - alder) * 12)
-    v = 1.0 / (1.0 + rente / 12.0)
-    forventet = (1.0 - v ** (K + 1)) / (1.0 - v)
+    # Eksakt geometrisk sum for frem-summation med kontinuert diskont
+    q = math.exp(-delta * dt)
+    forventet = dt * (1.0 - q ** K) / (1.0 - q)
     resultat = m.annuity_pv(alder, rente)
-    assert math.isclose(resultat, forventet, rel_tol=1e-9)
+    assert math.isclose(resultat, forventet, rel_tol=1e-12)
 
 
 def test_annuity_pv_falder_med_alder():

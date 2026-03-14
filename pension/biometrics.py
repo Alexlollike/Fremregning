@@ -74,33 +74,47 @@ class BiometricModel:
 
     def annuity_pv(self, alder: float, rente: float) -> float:
         """
-        Nutidsværdi af livsvarig livrente ä_{alder} ved diskret månedlig beregning.
+        Nutidsværdi af livsvarig livrente ä_{alder} via Thieles differentialligning.
 
-        Beregnes som:
-            ä_{x} = sum_{k=0}^{omega} k_p_x · v^k
-        hvor v = 1/(1 + r/12) og k_p_x er sandsynlighed for at overleve k måneder.
+        ODE-formuleringen er:
+
+            dä/dt = (δ − μ(x+t)) · ä(t) − 1,    ä(120) = 0
+
+        med δ = ln(1+r) (kontinuert rentekraft).
+
+        Implementeres via Duhamels formel — det analytiske integral for ODE-løsningen:
+
+            ä(t) = ∫_t^{120}  _{s−t}p_{x+t} · e^{−δ(s−t)} ds
+
+        approksimeret som månedlig frem-summation (numerisk stabil modsat
+        eksplicit baglæns integration, der er ustabil ved høj μ):
+
+            ä(t) ≈ Δt · Σ_{k=0}^{K−1}  k_p_{x+t} · e^{−δ·k·Δt}
+
+        Returnerer ä i enheder af år (PV af 1 kr./år annuitet).
+        Brug ä · 12 som nævner i ydelsesformlen U_t = D_t / (ä · 12).
 
         Parametre
         ---------
         alder : float
             Aktuel alder i år.
         rente : float
-            Årlig rente (f.eks. 0.03 for 3 %).
+            Årlig rente (f.eks. 0.05 for 5 %).
 
         Returnerer
         ----------
         float
-            Nutidsværdi af livsvarig livrente (ä_{x+t} i enheder af 1 kr./måned).
+            Nutidsværdi af livsvarig livrente ä_{x+t} i år.
         """
+        delta = math.log(1.0 + rente)   # kontinuert rentekraft δ = ln(1+r)
+        dt = 1.0 / 12.0                  # månedstrin i år
         max_months = int((120.0 - alder) * 12)
-        v = 1.0 / (1.0 + rente / 12.0)
+
         pv = 0.0
-        kpx = 1.0  # k_p_x: sandsynlighed for at overleve k måneder fra alder
-        vk = 1.0   # v^k
-        for k in range(max_months + 1):
-            pv += kpx * vk
-            kpx *= math.exp(-self.maanedlig_intensitet(alder + k / 12.0))
-            vk *= v
+        kpx = 1.0   # k_p_x: overlevelsessandsynlighed k måneder fra alder
+        for k in range(max_months):
+            pv += kpx * math.exp(-delta * k * dt)
+            kpx *= math.exp(-self.intensitet(alder + k * dt) * dt)
             if kpx < 1e-10:
                 break
-        return pv
+        return pv * dt   # Riemann-sum × Δt → år-enheder
