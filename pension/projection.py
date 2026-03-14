@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Sequence
 
-from pension.biometrics import BiometricModel
+from pension.biometrics import BiometricModel, ophørende_annuitet_pv
 from pension.market import MarketAssumptions
 from pension.policy import Policy, ProductType
 
@@ -54,6 +54,12 @@ class TrinResultat:
         Udbetaling U_t.
     pal_skat : float
         PAL-skat for dette trin (akkumuleres separat).
+    ratepension_depot : float
+        Fiktivt ratepensionsdepot ved trinstart.
+        For RATEPENSION-policer lig depot; 0 for øvrige produkttyper.
+    ratepension_depot_efter : float
+        Fiktivt ratepensionsdepot efter fremregning.
+        For RATEPENSION-policer lig depot_efter; 0 for øvrige produkttyper.
     """
 
     t: int
@@ -66,6 +72,8 @@ class TrinResultat:
     afkast: float
     ydelse: float
     pal_skat: float
+    ratepension_depot: float
+    ratepension_depot_efter: float
 
 
 def projicér(
@@ -102,6 +110,9 @@ def projicér(
     """
     resultater: list[TrinResultat] = []
     depot = police.depot
+    # Fiktivt ratepensionsdepot: lig det samlede depot for RATEPENSION-policer,
+    # 0 for øvrige produkttyper (forberedt til fremtidige kombinerede produkter).
+    rp_depot = police.depot if police.produkt == ProductType.RATEPENSION else 0.0
 
     for t in range(antal_trin):
         alder = police.alder_ved_trin(t)
@@ -129,6 +140,15 @@ def projicér(
         elif police.produkt == ProductType.LIVRENTE:
             livrente_pv = biometri.annuity_pv(alder, marked.rf + 0.01)
             ydelse = depot / (livrente_pv * 12.0) if livrente_pv > 0.0 else 0.0
+        elif police.produkt == ProductType.RATEPENSION:
+            # Dynamisk beregning: ydelse = rp_depot / (ä_N · 12)
+            # ä_N er en ikke-livsbetinget ophørende annuitet over resterende årrække.
+            udbetalingsslut_alder = (
+                police.udbetalingsstart_alder + police.udbetalingsperiode_aar
+            )
+            remaining_years = udbetalingsslut_alder - alder
+            annuitet_pv = ophørende_annuitet_pv(remaining_years, marked.rf)
+            ydelse = rp_depot / (annuitet_pv * 12.0) if annuitet_pv > 0.0 else 0.0
         else:
             ydelse = police.maanedlig_ydelse
 
@@ -142,6 +162,10 @@ def projicér(
 
         depot_efter = max(depot_efter, 0.0)
 
+        # Fiktivt ratepensionsdepot følger samme formel som hoveddepot for
+        # standalone RATEPENSION-policer (rp_depot == depot til enhver tid).
+        rp_depot_efter = depot_efter if police.produkt == ProductType.RATEPENSION else 0.0
+
         resultater.append(TrinResultat(
             t=t,
             alder=alder,
@@ -153,8 +177,11 @@ def projicér(
             afkast=r_t,
             ydelse=ydelse,
             pal_skat=pal_skat,
+            ratepension_depot=rp_depot,
+            ratepension_depot_efter=rp_depot_efter,
         ))
         depot = depot_efter
+        rp_depot = rp_depot_efter
 
     return resultater
 

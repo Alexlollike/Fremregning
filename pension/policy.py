@@ -11,8 +11,11 @@ Ansvar:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+
+# Årligt indbetalingsloft for ratepension jf. PBL § 16, stk. 2 (2026-niveau).
+RATEPENSION_INDBETALINGSLOFT: float = 68_700.0
 
 
 class ProductType(Enum):
@@ -45,8 +48,11 @@ class Policy:
     udbetalingsstart_alder : float
         Alder (i år) hvor opsparingsperioden ophører og udbetalingsperioden begynder.
     maanedlig_ydelse : float, optional
-        Fast månedlig ydelse U_t for ratepension/aldersopsparing i udbetalingsperioden.
+        Fast månedlig ydelse U_t for aldersopsparing i udbetalingsperioden.
         Beregnes ved konvertering; sættes til 0.0 indtil da.
+    udbetalingsperiode_aar : int, optional
+        Antal år ratepensionen udbetales over (10–20 år).
+        Kun relevant for RATEPENSION; ignoreres for øvrige produkttyper.
     """
 
     alder: float
@@ -57,6 +63,22 @@ class Policy:
     produkt: ProductType
     udbetalingsstart_alder: float
     maanedlig_ydelse: float = 0.0
+    udbetalingsperiode_aar: int = 15
+
+    def __post_init__(self) -> None:
+        if self.produkt == ProductType.RATEPENSION:
+            if self.praemie * 12 > RATEPENSION_INDBETALINGSLOFT:
+                raise ValueError(
+                    f"Månedlig præmie {self.praemie:.2f} kr. svarer til "
+                    f"{self.praemie * 12:.2f} kr./år og overskrider "
+                    f"indbetalingsloftet for ratepension på "
+                    f"{RATEPENSION_INDBETALINGSLOFT:.0f} kr. (2026)."
+                )
+            if not (10 <= self.udbetalingsperiode_aar <= 20):
+                raise ValueError(
+                    f"udbetalingsperiode_aar={self.udbetalingsperiode_aar} er "
+                    f"ugyldig: ratepension skal udbetales over 10–20 år."
+                )
 
     def er_i_udbetalingsperiode(self, t: int) -> bool:
         """
