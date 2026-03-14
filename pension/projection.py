@@ -159,8 +159,10 @@ def projicér(
         udbet = police.er_i_udbetalingsperiode(t)
 
         # Trin 1 — nettorisiko og risikopræmie
+        # rp_depot ekskluderes fra depotoffsettet: ratepensionsdepotet udbetales
+        # til efterladte ved død og er derfor ikke til rådighed for poolen.
         if not udbet:
-            nettorisiko = police.doedsfaldssum - depot
+            nettorisiko = police.doedsfaldssum - (depot - rp_depot)
             risikopraemie = mu_t * nettorisiko
             depot_star = depot + police.praemie - risikopraemie
             indbetalt_i_aar += police.praemie

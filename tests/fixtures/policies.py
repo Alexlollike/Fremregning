@@ -24,11 +24,12 @@ STANDARD_RATEPENSION = Policy(
     udbetalingsperiode_aar=15,
 )
 
-# Policy med dødsfaldsum lig depot → nettorisiko = 0
+# Policy med dødsfaldsum = 0 → nettorisiko = 0
+# For RATEPENSION går depotet til efterladte ved død, så S=0 giver nul nettorisiko.
 NULRISIKO_POLICY = Policy(
     alder=50.0,
     depot=100_000.0,
-    doedsfaldssum=100_000.0,
+    doedsfaldssum=0.0,
     praemie=0.0,
     omkostningspct=0.0,
     produkt=ProductType.RATEPENSION,

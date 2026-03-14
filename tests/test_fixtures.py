@@ -24,8 +24,10 @@ def test_standard_ratepension_is_policy():
     assert isinstance(STANDARD_RATEPENSION, Policy)
 
 
-def test_nulrisiko_policy_har_ens_depot_og_sum():
-    assert NULRISIKO_POLICY.depot == NULRISIKO_POLICY.doedsfaldssum
+def test_nulrisiko_policy_har_nul_doedsfaldssum():
+    # For RATEPENSION er nul nettorisiko opnået ved doedsfaldssum=0:
+    # depotet går til efterladte ved død og tæller ikke som offset.
+    assert NULRISIKO_POLICY.doedsfaldssum == 0.0
 
 
 def test_livrente_udbetaling_alder_lig_start():
