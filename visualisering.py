@@ -62,9 +62,10 @@ ax1.set_title("Depotudvikling")
 
 # Subplot 2: Ydelse og risikopræmie
 ax2.plot(aldre, df["ydelse"], color="seagreen", linewidth=1.5, label="Månedlig ydelse $U_t$")
+opsparing = df["risikopraemie"] != 0.0
 ax2.plot(
-    aldre[df["risikopraemie"] > 0],
-    df.loc[df["risikopraemie"] > 0, "risikopraemie"],
+    aldre[opsparing],
+    df.loc[opsparing, "risikopraemie"],
     color="firebrick",
     linewidth=1.2,
     linestyle=":",
