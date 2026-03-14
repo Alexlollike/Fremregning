@@ -1,8 +1,11 @@
 """
 visualisering.py — deterministisk fremregning og depot-visualisering.
 
-Eksempelpolicy: livrente, alder 40, depot 100.000 kr, præmie 2.000 kr/md.
-Opsparingsperiode til 67 år, derefter livrente-udbetaling til 100 år.
+Viser to produkter til sammenligning:
+  1. Livrente:     alder 40, depot 100.000 kr, præmie 2.000 kr/md.
+                   Opsparingsperiode til 67 år, livrente-udbetaling til 100 år.
+  2. Ratepension:  alder 40, depot 100.000 kr, præmie 2.000 kr/md.
+                   Opsparingsperiode til 67 år, rateudbetaling over 15 år (67–82 år).
 """
 
 import matplotlib
@@ -24,8 +27,8 @@ biometri = BiometricModel(A=0.0005, B=0.00007585775, c=1.09144)
 # Marked: 4 % rente, deterministisk (ε=0)
 marked = MarketAssumptions(rf=0.04, volatilitet=0.15)
 
-# Policy: livrente, alder 40, opsparingsstart
-police = Policy(
+# Policy 1: Livrente, alder 40, opsparingsstart
+police_livrente = Policy(
     alder=40.0,
     depot=100_000.0,
     doedsfaldssum=500_000.0,
@@ -35,24 +38,42 @@ police = Policy(
     udbetalingsstart_alder=67.0,
 )
 
-# Fremregn 60 år = 720 måneder (alder 40 → 100)
-antal_trin = 60 * 12
-resultater = projicér(police, marked, biometri, antal_trin)
-df = trin_til_dataframe(resultater)
+# Policy 2: Ratepension, alder 40, opsparingsstart, 15 års udbetaling
+police_rate = Policy(
+    alder=40.0,
+    depot=100_000.0,
+    doedsfaldssum=500_000.0,
+    praemie=2_000.0,
+    omkostningspct=0.005 / 12.0,
+    produkt=ProductType.RATEPENSION,
+    udbetalingsstart_alder=67.0,
+    udbetalingsperiode_aar=15,
+)
+
+# Fremregn livrente: 60 år = 720 måneder (alder 40 → 100)
+resultater_livrente = projicér(police_livrente, marked, biometri, 60 * 12)
+df_livrente = trin_til_dataframe(resultater_livrente)
+
+# Fremregn ratepension: 42 år = 504 måneder (alder 40 → 82)
+resultater_rate = projicér(police_rate, marked, biometri, 42 * 12)
+df_rate = trin_til_dataframe(resultater_rate)
+
+udbet_start = police_livrente.udbetalingsstart_alder
 
 # --- Graf ------------------------------------------------------------------
 
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
 fig.suptitle(
-    "Deterministisk fremregning — livrente (40 → 100 år, rf=4 %, α=0,5 % p.a.)",
+    "Deterministisk fremregning — livrente vs. ratepension (alder 40, rf=4 %, α=0,5 % p.a.)",
     fontsize=13,
 )
 
-aldre = df["alder"].values
-udbet_start = police.udbetalingsstart_alder
+aldre_l = df_livrente["alder"].values
+aldre_r = df_rate["alder"].values
 
 # Subplot 1: Depot
-ax1.plot(aldre, df["depot"] / 1_000, color="steelblue", linewidth=1.5, label="Depot $D_t$")
+ax1.plot(aldre_l, df_livrente["depot"] / 1_000, color="steelblue", linewidth=1.5, label="Depot — livrente")
+ax1.plot(aldre_r, df_rate["depot"] / 1_000, color="darkorange", linewidth=1.5, linestyle="--", label="Depot — ratepension (15 år)")
 ax1.axvline(udbet_start, color="gray", linestyle="--", linewidth=1, label=f"Udbetalingsstart ({int(udbet_start)} år)")
 ax1.set_ylabel("Depot (1.000 kr)")
 ax1.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
@@ -61,11 +82,13 @@ ax1.grid(True, alpha=0.3)
 ax1.set_title("Depotudvikling")
 
 # Subplot 2: Ydelse og risikopræmie
-ax2.plot(aldre, df["ydelse"], color="seagreen", linewidth=1.5, label="Månedlig ydelse $U_t$")
-opsparing = df["risikopraemie"] != 0.0
+ax2.plot(aldre_l, df_livrente["ydelse"], color="seagreen", linewidth=1.5, label="Ydelse — livrente $U_t$")
+ax2.plot(aldre_r, df_rate["ydelse"], color="darkorange", linewidth=1.5, linestyle="--", label="Ydelse — ratepension $U_t$")
+
+opsparing_l = df_livrente["risikopraemie"] != 0.0
 ax2.plot(
-    aldre[opsparing],
-    df.loc[opsparing, "risikopraemie"],
+    aldre_l[opsparing_l],
+    df_livrente.loc[opsparing_l, "risikopraemie"],
     color="firebrick",
     linewidth=1.2,
     linestyle=":",
@@ -84,9 +107,10 @@ plt.savefig("depot_graf.png", dpi=150, bbox_inches="tight")
 print("Graf gemt som depot_graf.png")
 
 # Udskriv nøgletal
-depot_ved_67 = df.loc[df["alder"].sub(67.0).abs().idxmin(), "depot"]
-max_ydelse = df["ydelse"].max()
+depot_ved_67_l = df_livrente.loc[df_livrente["alder"].sub(67.0).abs().idxmin(), "depot"]
+depot_ved_67_r = df_rate.loc[df_rate["alder"].sub(67.0).abs().idxmin(), "depot"]
 print(f"\nNøgletal (deterministisk, ε=0):")
-print(f"  Depot ved alder 67:      {depot_ved_67:>12,.0f} kr")
-print(f"  Maks. månedlig ydelse:   {max_ydelse:>12,.0f} kr")
-print(f"  Første ydelse (md. 325): {df.loc[df['ydelse'] > 0, 'ydelse'].iloc[0]:>12,.0f} kr")
+print(f"  Livrente — depot ved alder 67:     {depot_ved_67_l:>12,.0f} kr")
+print(f"  Ratepension — depot ved alder 67:  {depot_ved_67_r:>12,.0f} kr")
+print(f"  Livrente — maks. månedlig ydelse:  {df_livrente['ydelse'].max():>12,.0f} kr")
+print(f"  Ratepension — første månedlige ydelse: {df_rate.loc[df_rate['ydelse'] > 0, 'ydelse'].iloc[0]:>12,.0f} kr")
