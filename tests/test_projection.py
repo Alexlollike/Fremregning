@@ -43,6 +43,56 @@ def test_depot_vokser_lineaert_med_praemie():
 
 
 # ---------------------------------------------------------------------------
+# Ratepension: rp_depot ekskluderes fra nettorisiko (ingen dødelighedsarv)
+# ---------------------------------------------------------------------------
+
+def test_ratepension_nettorisiko_ekskluderer_rp_depot():
+    """For ratepension tæller rp_depot ikke som depotoffset i nettorisiko.
+
+    nettorisiko = doedsfaldssum - (depot - rp_depot) = doedsfaldssum for standalone RATEPENSION.
+    """
+    police = Policy(
+        alder=40.0,
+        depot=100_000.0,
+        doedsfaldssum=200_000.0,
+        praemie=0.0,
+        omkostningspct=0.0,
+        produkt=ProductType.RATEPENSION,
+        udbetalingsstart_alder=67.0,
+        udbetalingsperiode_aar=15,
+    )
+    resultater = projicér(police, NUL_MARKED, STANDARD_BIOMETRI, antal_trin=1)
+    trin = resultater[0]
+    # rp_depot = depot, så nettorisiko = doedsfaldssum (ikke doedsfaldssum - depot)
+    assert math.isclose(trin.nettorisiko, 200_000.0, rel_tol=1e-9), (
+        f"Forventet nettorisiko=200000, fik {trin.nettorisiko}"
+    )
+    mu = STANDARD_BIOMETRI.maanedlig_intensitet(40.0)
+    assert math.isclose(trin.risikopraemie, mu * 200_000.0, rel_tol=1e-9), (
+        f"Forventet risikopraemie={mu * 200_000.0:.6f}, fik {trin.risikopraemie:.6f}"
+    )
+
+
+def test_livrente_nettorisiko_upaavirktet_af_rp_depot_aendring():
+    """For livrente er rp_depot=0, så nettorisiko = doedsfaldssum - depot (uændret)."""
+    police = Policy(
+        alder=40.0,
+        depot=100_000.0,
+        doedsfaldssum=200_000.0,
+        praemie=0.0,
+        omkostningspct=0.0,
+        produkt=ProductType.LIVRENTE,
+        udbetalingsstart_alder=67.0,
+    )
+    resultater = projicér(police, NUL_MARKED, STANDARD_BIOMETRI, antal_trin=1)
+    trin = resultater[0]
+    # rp_depot = 0 for LIVRENTE, nettorisiko = doedsfaldssum - depot = 100k
+    assert math.isclose(trin.nettorisiko, 100_000.0, rel_tol=1e-9), (
+        f"Forventet nettorisiko=100000, fik {trin.nettorisiko}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Nettorisiko=0 → risikopræmie=0 (μ=0)
 # ---------------------------------------------------------------------------
 
