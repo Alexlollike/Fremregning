@@ -118,3 +118,40 @@ class BiometricModel:
             if kpx < 1e-10:
                 break
         return pv * dt   # Riemann-sum × Δt → år-enheder
+
+
+def ophørende_annuitet_pv(n_years: float, rente: float) -> float:
+    """
+    Nutidsværdi af ophørende (ikke-livsbetinget) annuitet over n_years år,
+    betalt månedligt.
+
+    Formlen er:
+
+        ä_N^(12) ≈ Δt · Σ_{k=0}^{12·N − 1} e^{−δ·k·Δt}
+
+    med δ = ln(1+r) og Δt = 1/12.
+
+    Returnerer ä i enheder af år (PV af 1 kr./år annuitet).
+    Brug ä · 12 som nævner i ydelsesformlen U_t = D_t / (ä · 12).
+
+    Analytisk kontrol (rente=0): ä_N = N (summen af N·12 led à 1/12).
+
+    Parametre
+    ---------
+    n_years : float
+        Resterende udbetalingsperiode i år. Returnerer 0.0 hvis n_years <= 0.
+    rente : float
+        Årlig rente (f.eks. 0.03 for 3 %).
+
+    Returnerer
+    ----------
+    float
+        Nutidsværdi af ophørende annuitet i år-enheder.
+    """
+    if n_years <= 0.0:
+        return 0.0
+    delta = math.log(1.0 + rente)
+    dt = 1.0 / 12.0
+    total_months = int(round(n_years * 12))
+    pv = sum(math.exp(-delta * k * dt) for k in range(total_months))
+    return pv * dt

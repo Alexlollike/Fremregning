@@ -21,7 +21,7 @@ STANDARD_RATEPENSION = Policy(
     omkostningspct=0.005 / 12,
     produkt=ProductType.RATEPENSION,
     udbetalingsstart_alder=67.0,
-    maanedlig_ydelse=0.0,
+    udbetalingsperiode_aar=15,
 )
 
 # Policy med dødsfaldsum lig depot → nettorisiko = 0
@@ -33,7 +33,19 @@ NULRISIKO_POLICY = Policy(
     omkostningspct=0.0,
     produkt=ProductType.RATEPENSION,
     udbetalingsstart_alder=67.0,
-    maanedlig_ydelse=0.0,
+    udbetalingsperiode_aar=15,
+)
+
+# Ratepension i udbetalingsperiode (alder >= udbetalingsstart), 15-årig udbetaling
+RATEPENSION_UDBETALING = Policy(
+    alder=67.0,
+    depot=500_000.0,
+    doedsfaldssum=0.0,
+    praemie=0.0,
+    omkostningspct=0.0,
+    produkt=ProductType.RATEPENSION,
+    udbetalingsstart_alder=67.0,
+    udbetalingsperiode_aar=15,
 )
 
 # Livrente i udbetalingsperiode (alder >= udbetalingsstart)

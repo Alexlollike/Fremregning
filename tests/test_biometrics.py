@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from pension.biometrics import BiometricModel
+from pension.biometrics import BiometricModel, ophørende_annuitet_pv
 from tests.fixtures.models import NUL_BIOMETRI, STANDARD_BIOMETRI
 
 
@@ -93,3 +93,51 @@ def test_annuity_pv_falder_med_rente():
 
 def test_annuity_pv_positiv():
     assert STANDARD_BIOMETRI.annuity_pv(67.0, 0.03) > 0.0
+
+
+# ---------------------------------------------------------------------------
+# ophørende_annuitet_pv
+# ---------------------------------------------------------------------------
+
+def test_ophørende_annuitet_nul_rente():
+    """Med rente=0 er PV af N-årig annuitet lig N (ingen diskontering)."""
+    for n in [10, 15, 20]:
+        resultat = ophørende_annuitet_pv(n, 0.0)
+        assert math.isclose(resultat, n, rel_tol=1e-9), (
+            f"n={n}: forventet {n}, fik {resultat}"
+        )
+
+
+def test_ophørende_annuitet_positiv_rente_mindre_end_n():
+    """Med positiv rente er PV < N (diskontering reducerer nutidsværdien)."""
+    for n in [10, 15, 20]:
+        assert ophørende_annuitet_pv(n, 0.03) < n
+
+
+def test_ophørende_annuitet_falder_med_rente():
+    """Højere rente giver lavere nutidsværdi."""
+    assert ophørende_annuitet_pv(15, 0.01) > ophørende_annuitet_pv(15, 0.05)
+
+
+def test_ophørende_annuitet_falder_med_kortere_periode():
+    """Kortere udbetalingsperiode giver lavere nutidsværdi."""
+    assert ophørende_annuitet_pv(20, 0.03) > ophørende_annuitet_pv(10, 0.03)
+
+
+def test_ophørende_annuitet_nul_eller_negativ_periode():
+    """n_years <= 0 returnerer 0."""
+    assert ophørende_annuitet_pv(0.0, 0.03) == 0.0
+    assert ophørende_annuitet_pv(-5.0, 0.03) == 0.0
+
+
+def test_ophørende_annuitet_positiv_rente_geometrisk_sum():
+    """Eksakt geometrisk kontrol: Δt · (1 − v^N) / (1 − v^Δt)."""
+    n = 15
+    rente = 0.04
+    delta = math.log(1.0 + rente)
+    dt = 1.0 / 12.0
+    K = n * 12
+    q = math.exp(-delta * dt)
+    forventet = dt * (1.0 - q ** K) / (1.0 - q)
+    resultat = ophørende_annuitet_pv(n, rente)
+    assert math.isclose(resultat, forventet, rel_tol=1e-12)
