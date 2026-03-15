@@ -12,6 +12,7 @@ Testgrupper:
     5. Depot: nul-cashflow → depot vokser kun ved afkast
     6. Cashflow: præmie og ydelse præcist bogført
     7. Overgangsydelse: livsforsikring (S - D) korrekt vægtet
+    8. Genkøbt: absorberende tilstand med hel-depot-udbetaling
 """
 
 import math
@@ -26,11 +27,14 @@ from tests.fixtures.markov_fixtures import (
     NUL_BIOMETRI,
     NUL_MARKOV_2,
     NUL_MARKOV_3,
+    NUL_MARKOV_4,
     STANDARD_BIOMETRI,
     STANDARD_MARKOV_2,
     STANDARD_MARKOV_3,
+    STANDARD_MARKOV_4,
     nul_produkt,
     simpelt_opsparingsprodukt,
+    simpelt_opsparingsprodukt_med_genkøb,
 )
 from tests.fixtures.models import NUL_MARKED, STANDARD_MARKED
 
@@ -373,3 +377,90 @@ class TestDepotomkostning:
             assert math.isclose(r.depot_per_tilstand["aktiv"], forventet, rel_tol=1e-9), (
                 f"Trin {i}: forventet {forventet:.2f}, fik {r.depot_per_tilstand['aktiv']:.2f}"
             )
+
+
+# ---------------------------------------------------------------------------
+# 8. Genkøbt: absorberende tilstand med hel-depot-udbetaling
+# ---------------------------------------------------------------------------
+
+
+class TestGenkøbt:
+    def test_genkøbt_er_absorberende_i_4tilstandsmodel(self):
+        """π_genkøbt vokser monotont — tilstanden er absorberende."""
+        produkt = nul_produkt(100_000.0, STANDARD_MARKOV_4)
+        resultater = markov_projicér(STANDARD_MARKOV_4, produkt, NUL_MARKED, 40.0, 60)
+        idx_g = 2  # indeks for "genkøbt" i STANDARD_MARKOV_4
+        forrige = 0.0
+        for r in resultater:
+            assert r.pi[idx_g] >= forrige - 1e-12, (
+                f"Trin {r.t}: π_genkøbt={r.pi[idx_g]:.6f} < forrige {forrige:.6f}"
+            )
+            forrige = r.pi[idx_g]
+
+    def test_pi_sum_er_1_med_genkøbt(self):
+        """π(t) summerer til 1 for alle t i 4-tilstandsmodel."""
+        produkt = nul_produkt(100_000.0, STANDARD_MARKOV_4)
+        resultater = markov_projicér(STANDARD_MARKOV_4, produkt, NUL_MARKED, 40.0, 60)
+        for r in resultater:
+            assert math.isclose(sum(r.pi), 1.0, rel_tol=1e-10), (
+                f"Trin {r.t}: sum(π) = {sum(r.pi)}"
+            )
+
+    def test_overgangsydelse_ved_genkøb_er_hele_depotet(self):
+        """Overgangsydelse aktiv→genkøbt = P_{aktiv,genkøbt} · D_aktiv."""
+        depot0 = 150_000.0
+        alder = 45.0
+
+        genkøbsrate = 0.03  # p.a. — svarer til STANDARD_MARKOV_4
+        p_genkøbt = genkøbsrate / 12.0  # Euler: P[aktiv→genkøbt] ≈ μ_ag/12
+
+        forventet_ydelse = p_genkøbt * depot0  # λ/12 · D (hele depotet)
+
+        produkt = simpelt_opsparingsprodukt_med_genkøb(
+            depot=depot0,
+            praemie=0.0,
+            doedsfaldssum=0.0,
+            genkøbsrate=genkøbsrate,
+            omkostningspct=0.0,
+            markov_model=STANDARD_MARKOV_4,
+        )
+        resultater = markov_projicér(STANDARD_MARKOV_4, produkt, NUL_MARKED, alder, 1)
+        r = resultater[0]
+
+        # Isolér genkøbsydelsen: da doedsfaldssum=0 og S−D=−D<0 giver negativ
+        # overgangsydelse til doed, bruger vi direkte forventet_ydelse som sum.
+        # For korrekt isolering: byg produkt kun med genkøbs-cashflow.
+        produkt_kun_genkøb = MarkovProdukt(
+            navn="kun_genkøb",
+            tilstands_cashflows=[],
+            overgangscashflows=[
+                OvgangsCashflow("aktiv", "genkøbt", lambda a, d: d),
+            ],
+            omkostningspct=0.0,
+            initial_depot={"aktiv": depot0},
+        )
+        resultater2 = markov_projicér(STANDARD_MARKOV_4, produkt_kun_genkøb, NUL_MARKED, alder, 1)
+        r2 = resultater2[0]
+
+        assert math.isclose(r2.forventet_ydelse, forventet_ydelse, rel_tol=1e-9), (
+            f"Forventet genkøbsydelse {forventet_ydelse:.2f}, fik {r2.forventet_ydelse:.2f}"
+        )
+
+    def test_nul_intensitet_giver_nul_genkøbsydelse(self):
+        """Ingen genkøbsintensitet → genkøbsydelse = 0."""
+        produkt = MarkovProdukt(
+            navn="genkøb_nul",
+            tilstands_cashflows=[],
+            overgangscashflows=[
+                OvgangsCashflow("aktiv", "genkøbt", lambda a, d: d),
+            ],
+            omkostningspct=0.0,
+            initial_depot={"aktiv": 200_000.0},
+        )
+        resultater = markov_projicér(NUL_MARKOV_4, produkt, NUL_MARKED, 40.0, 1)
+        assert math.isclose(resultater[0].forventet_ydelse, 0.0, abs_tol=1e-9)
+
+    def test_validér_kaster_ikke_for_4tilstandsmodeller(self):
+        """validér() kaster ingen fejl for NUL_MARKOV_4 og STANDARD_MARKOV_4."""
+        NUL_MARKOV_4.validér()
+        STANDARD_MARKOV_4.validér()
