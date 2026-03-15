@@ -5,22 +5,26 @@ Ansvar:
 - Implementere `markov_projicér()` der fremregner et MarkovProdukt over tid.
 - Returnere en liste af `MarkovTrinResultat` med tilstandsbetingede og forventede
   størrelser per månedstrin.
-- Følge CLAUDE.md's Trin 1–5 per transient tilstand med tilstandsspecifikke cashflows.
+- Beregne D_s(t) som det sande betingede depot E[D(t) | X(t)=s] via Thiele-blanding.
 - Beregne forventede størrelser E[D(t)], E[U(t)], E[PAL(t)] til regnskabsbrug.
 
-Fremregningsrækkefølge per trin (jf. CLAUDE.md's Markov-afsnit):
+Thiele-blanding (depotmixing):
+    D_s(t) er det forventede depot givet tilstand s på tid t, over alle mulige stier
+    der ender i s. Fordi depotudviklingen er lineær, kan D_s(t+1) beregnes som:
 
-    For hver transient tilstand s:
-        1. Pre-investment cashflows (TilstandsCashflow tidspunkt="pre"): tillægges depotet.
-           OvgangsCashflows: forventet nettorisikopræmie fratrækkes depotet (som i 2-tilstandsmodel).
-        2. Investeringsafkast r_t (fælles for alle tilstande).
-        3. Depotomkostning α.
-        4. PAL-skat (akkumuleres separat).
-        5. Post-investment cashflows (TilstandsCashflow tidspunkt="post"): fratrækkes depotet.
+        π_s(t+1) · D_s(t+1) = Σ_i π_i(t) · P_{is}(t) · D̂_{is}
 
-    Herefter:
-        Opdater π(t+1) = π(t) · P(t).
-        Beregn forventede størrelser E[D], E[U], E[PAL].
+    hvor D̂_{is} er depotet for en sti der starter i tilstand i og ender i s:
+        1. Pre-cashflows for tilstand i.
+        2. Overgangscashflow K_{is} (0 for i=s).
+        3. Investeringsafkast r_t og depotomkostning α.
+        4. Post-cashflow for tilstand s (evalueret ved D_i).
+
+Fremregningsrækkefølge per trin:
+    1. Ét pass over (i, s): akkumulér depot_naeste_num[s], cashflow_s[i], pal_s[i].
+    2. Opdater π(t+1) = π(t) · P(t).
+    3. D_s(t+1) = depot_naeste_num[s] / π_s(t+1).
+    4. Beregn forventede størrelser E[D], E[U], E[PAL].
 
 Ikke modificeret: pension/projection.py (2-tilstandsmodel bevares uændret).
 """
@@ -53,19 +57,16 @@ class MarkovTrinResultat:
     pi : list[float]
         Tilstandssandsynlighedsvektor π(t) ved trinstart (summerer til 1).
     depot_per_tilstand : dict[str, float]
-        Betinget depotværdi D_s(t) ved trinstart, pr. tilstandsnavn.
-        Inkluderer alle tilstande (også doed hvis doed_depot > 0).
-    depot_efter_per_tilstand : dict[str, float]
-        Betinget depotværdi D_s(t+1) efter fremregning, pr. tilstandsnavn.
+        Betinget depotværdi D_s(t) = E[D(t) | X(t)=s] ved trinstart.
+        Korrekt blandet over alle stier der ender i tilstand s.
     cashflow_per_tilstand : dict[str, float]
-        Nettoudgående cashflow U_s(t) per tilstand (sum af post-ydelser
-        og forventede overgangsydelser fra tilstand s).
+        Forventet udgående cashflow givet afsendertilstand i:
+        Σ_s P_{is} · (K_{is} + post_s). Bruges til E[U(t)].
     pal_per_tilstand : dict[str, float]
-        PAL-skat pr. tilstand PAL_s(t).
+        Forventet PAL-skat givet afsendertilstand i:
+        Σ_s P_{is} · PAL_{is}(t).
     forventet_depot : float
         E[D(t)] = Σ_s π_s(t) · D_s(t) ved trinstart.
-    forventet_depot_efter : float
-        E[D(t+1)] = Σ_s π_s(t+1) · D_s(t+1) efter fremregning.
     forventet_ydelse : float
         E[U(t)] = Σ_s π_s(t) · cashflow_s(t) (udgående cashflows).
     forventet_pal_skat : float
@@ -79,11 +80,9 @@ class MarkovTrinResultat:
     dato: date
     pi: list[float]
     depot_per_tilstand: dict[str, float]
-    depot_efter_per_tilstand: dict[str, float]
     cashflow_per_tilstand: dict[str, float]
     pal_per_tilstand: dict[str, float]
     forventet_depot: float
-    forventet_depot_efter: float
     forventet_ydelse: float
     forventet_pal_skat: float
     afkast: float
@@ -102,8 +101,9 @@ def markov_projicér(
     """
     Fremregner et MarkovProdukt over `antal_trin` måneder.
 
-    Fremregningsrækkefølgen følger CLAUDE.md Trin 1–5 per transient tilstand,
-    efterfulgt af sandsynlighedsopdatering og beregning af forventede størrelser.
+    Benytter Thiele-blanding: D_s(t+1) beregnes som det sande betingede depot
+    E[D(t+1) | X(t+1)=s], dvs. en forventning over alle stier i → s vægtet med
+    π_i(t) · P_{is}(t).
 
     Parametre
     ---------
@@ -131,6 +131,7 @@ def markov_projicér(
     """
     navne = [t.navn for t in model.tilstande]
     n = model.n
+    indeks = {navn: i for i, navn in enumerate(navne)}
 
     # Startdepot pr. tilstand
     depot_s: dict[str, float] = {navn: produkt.depot_start(navn) for navn in navne}
@@ -139,7 +140,6 @@ def markov_projicér(
     if start_pi is not None:
         pi: list[float] = list(start_pi)
     else:
-        # Standard: sandsynlighed 1 i første transiente tilstand
         første_transient = next(
             (t.navn for t in model.tilstande if not t.absorberende), None
         )
@@ -155,83 +155,91 @@ def markov_projicér(
         epsilon = epsilons[t] if epsilons is not None else 0.0
         r_t = marked.afkast(epsilon)
 
-        # Gem tilstandssandsynligheder og depoter ved trinstart
+        # Gem åbningsstørrelser
         pi_t = list(pi)
         depot_start_t = {navn: depot_s[navn] for navn in navne}
 
-        # Hent overgangsmatrix P(t) til brug i overgangsydelsesberegninger
         p = model.p_matrix(alder)
-        indeks = {navn: i for i, navn in enumerate(navne)}
 
-        # --- Trin 1–5 per transient tilstand ---
-        depot_efter_s: dict[str, float] = {}
-        cashflow_s: dict[str, float] = {}
-        pal_s: dict[str, float] = {}
+        # ------------------------------------------------------------------
+        # Thiele-blanding — ét pass over alle overgangspar (i → s):
+        #
+        # For hvert kildepar bruges D_i = depot_s[i] (det kendte betingede
+        # depot i tilstand i). Alle cashflow-funktioner evalueres ved D_i.
+        # Resultater akkumuleres direkte; D̂_{is} gemmes ikke separat.
+        #
+        # depot_naeste_num[s] = Σ_i π_i · P_{is} · D̂_{is}   (tæller)
+        # cashflow_s[i]       = Σ_s P_{is} · (K_{is} + post_s)
+        # pal_s[i]            = Σ_s P_{is} · PAL_{is}
+        # ------------------------------------------------------------------
 
-        for tilstand in model.tilstande:
-            s = tilstand.navn
-            D = depot_s[s]
-            i_s = indeks[s]
+        depot_naeste_num: dict[str, float] = {s: 0.0 for s in navne}
+        cashflow_s: dict[str, float] = {s: 0.0 for s in navne}
+        pal_s: dict[str, float] = {s: 0.0 for s in navne}
 
-            if tilstand.absorberende and D <= 0.0:
-                # Absorberende tilstand uden depot: ingen beregning nødvendig
-                depot_efter_s[s] = 0.0
-                cashflow_s[s] = 0.0
-                pal_s[s] = 0.0
-                continue
+        for fra_t in model.tilstande:
+            i_navn = fra_t.navn
+            D_i = depot_start_t[i_navn]
+            i_idx = indeks[i_navn]
 
-            # Trin 1 — pre-investment cashflows (præmier tillægges, overgangsrisici fratrækkes)
-            pre_ind = sum(
-                cf.beloeb(alder, D)
-                for cf in produkt.tilstands_cashflows_for(s)
+            # Pre-cashflows for afsendertilstand i (præmie, indgående)
+            pre_i = sum(
+                cf.beloeb(alder, D_i)
+                for cf in produkt.tilstands_cashflows_for(i_navn)
                 if cf.tidspunkt == "pre"
             )
 
-            # Forventet nettoomkostning ved overgange fra s (analogt med risikopræmie):
-            # Σ_{j≠s} μ_{sj}/12 · K_{sj}(alder, D_s)
-            # K_{sj} er OvgangsCashflow.beloeb (direkte sum ved overgang)
-            overgangs_netto = 0.0
-            for j_navn in navne:
-                if j_navn == s:
-                    continue
-                j = indeks[j_navn]
-                p_sj = p[i_s][j]
-                for ocf in produkt.overgangscashflows_for(s, j_navn):
-                    overgangs_netto += p_sj * ocf.beloeb(alder, D)
+            for til_t in model.tilstande:
+                s_navn = til_t.navn
+                s_idx = indeks[s_navn]
+                p_is = p[i_idx][s_idx]
 
-            depot_star = D + pre_ind - overgangs_netto
+                # Overgangscashflow K_{is}: 0 for selvovergang (i=s)
+                if i_navn == s_navn:
+                    K_is = 0.0
+                else:
+                    K_is = sum(
+                        ocf.beloeb(alder, D_i)
+                        for ocf in produkt.overgangscashflows_for(i_navn, s_navn)
+                    )
 
-            # Trin 4 — PAL-skat (påvirker ikke depotet)
-            pal = (0.153 / 12.0) * max(depot_star * r_t, 0.0)
+                D_after_pre = D_i + pre_i - K_is
 
-            # Trin 2+3 — afkast og depotomkostning
-            depot_after_inv = depot_star * (1.0 + r_t) * (1.0 - produkt.omkostningspct)
+                # PAL-skat (påvirker ikke depotet)
+                pal_is = (0.153 / 12.0) * max(D_after_pre * r_t, 0.0)
 
-            # Trin 5 — post-investment cashflows (ydelser fratrækkes)
-            post_ud = sum(
-                cf.beloeb(alder, D)
-                for cf in produkt.tilstands_cashflows_for(s)
-                if cf.tidspunkt == "post"
-            )
+                # Trin 2+3: afkast og depotomkostning
+                D_after_inv = D_after_pre * (1.0 + r_t) * (1.0 - produkt.omkostningspct)
 
-            D_naeste = max(depot_after_inv - post_ud, 0.0)
+                # Post-cashflows for ankomsttilstand s (ydelse, udgående)
+                # Evalueres ved D_i (afsenderdepot) jf. linearitetsantagelse
+                post_s = sum(
+                    cf.beloeb(alder, D_i)
+                    for cf in produkt.tilstands_cashflows_for(s_navn)
+                    if cf.tidspunkt == "post"
+                )
 
-            depot_efter_s[s] = D_naeste
-            # Udgående cashflow pr. tilstand: overgangsydelser + post-ydelser
-            cashflow_s[s] = overgangs_netto + post_ud
-            pal_s[s] = pal
+                D_hat_is = max(D_after_inv - post_s, 0.0)
 
-        # Opdater depot for absorberende tilstande med positiv indstrømning
-        # (doed_depot: arvingernes resterende ydelse akkumulerer via overgangscashflows)
-        # Depotoverførslen til absorberende tilstande sker allerede via overgangs_netto
-        # på afsendersiden — modtagersiden (doed) fremregnes separat ovenfor.
+                depot_naeste_num[s_navn] += pi_t[i_idx] * p_is * D_hat_is
+                cashflow_s[i_navn] += p_is * (K_is + post_s)
+                pal_s[i_navn] += p_is * pal_is
 
-        # --- Opdater π(t+1) ---
+        # Opdater π(t+1) = π(t) · P(t)
         pi_naeste = model.opdater_pi(pi, alder)
 
-        # --- Forventede størrelser ---
+        # D_s(t+1) = depot_naeste_num[s] / π_s(t+1)
+        depot_efter_s: dict[str, float] = {
+            til_t.navn: (
+                depot_naeste_num[til_t.navn] / pi_naeste[indeks[til_t.navn]]
+                if pi_naeste[indeks[til_t.navn]] > 0.0
+                else 0.0
+            )
+            for til_t in model.tilstande
+        }
+
+        # Forventede størrelser
         forventet_depot = sum(pi_t[indeks[s]] * depot_start_t[s] for s in navne)
-        forventet_depot_efter = sum(pi_naeste[indeks[s]] * depot_efter_s[s] for s in navne)
         forventet_ydelse = sum(pi_t[indeks[s]] * cashflow_s[s] for s in navne)
         forventet_pal = sum(pi_t[indeks[s]] * pal_s[s] for s in navne)
 
@@ -241,11 +249,9 @@ def markov_projicér(
             dato=dato,
             pi=pi_t,
             depot_per_tilstand=dict(depot_start_t),
-            depot_efter_per_tilstand=dict(depot_efter_s),
             cashflow_per_tilstand=dict(cashflow_s),
             pal_per_tilstand=dict(pal_s),
             forventet_depot=forventet_depot,
-            forventet_depot_efter=forventet_depot_efter,
             forventet_ydelse=forventet_ydelse,
             forventet_pal_skat=forventet_pal,
             afkast=r_t,
