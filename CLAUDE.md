@@ -101,6 +101,67 @@ $$U_t = \frac{D_t}{\ddot{a}_{x+t} \cdot 12}, \qquad \ddot{a}_{x+t} = \texttt{ann
 
 ---
 
+## Markov-model med flere tilstande
+
+### Tilstandsrum
+
+Tilstandsrummet indeholder $N$ tilstande $\{s_0, s_1, \ldots, s_{N-1}\}$.
+Mindst én tilstand er absorberende (fx $\text{doed}$); de øvrige er transiente (fx $\text{aktiv}$, $\text{invalid}$).
+
+### Intensitetsmatrix og overgangsmatrix
+
+Intensitetsmatrix $Q(t)$ ved alder $x + t/12$:
+
+$$Q_{ij}(t) = \mu_{ij}(x + t/12), \quad i \neq j$$
+$$Q_{ii}(t) = -\sum_{j \neq i} Q_{ij}(t)$$
+
+Månedlig overgangsmatrix (Euler-approksimation):
+
+$$P(t) \approx I + Q(t) \cdot \tfrac{1}{12}$$
+
+### Sandsynlighedsvektor
+
+$$\pi(t) = \bigl[\pi_{s_0}(t),\, \pi_{s_1}(t),\, \ldots\bigr], \quad \sum_s \pi_s(t) = 1$$
+
+Opdatering:
+
+$$\pi_j(t+1) = \sum_i \pi_i(t) \cdot P_{ij}(t)$$
+
+### Tilstandsbetingede depoter
+
+Hvert transient tilstand $s$ har et betinget depot $D_s(t)$, fremregnet med de cashflows der gælder for tilstand $s$. Det absorberende $\text{doed}$-depot kan være $>0$ i udbetalingsperioden (arvingernes ydelse).
+
+### Cashflow-regler (produktdefinition)
+
+Et produkt er defineret ved to typer regler:
+
+- **Tilstandscashflow:** Løbende udbetaling $U_s(t)$ mens den forsikrede er i tilstand $s$.
+- **Overgangscashflow:** Éngangsudbetaling $K_{ss'}(t)$ ved overgang $s \to s'$ i trin $t$.
+
+### Forventede størrelser (til regnskab)
+
+$$\mathbb{E}[D(t)] = \sum_s \pi_s(t) \cdot D_s(t)$$
+
+$$\mathbb{E}[U(t)] = \sum_s \pi_s(t) \cdot U_s(t) + \sum_{s,s'} \pi_s(t) \cdot P_{ss'}(t) \cdot K_{ss'}(t)$$
+
+$$\mathbb{E}[\text{PAL}(t)] = \sum_s \pi_s(t) \cdot \text{PAL}_s(t)$$
+
+### Variabelnavne (Markov-udvidelse)
+
+| Symbol | Python |
+|--------|--------|
+| $\pi(t)$ | `pi` |
+| $Q(t)$ | `q_matrix` |
+| $P(t)$ | `p_matrix` |
+| $D_s(t)$ | `depot_per_tilstand[s]` |
+| $U_s(t)$ | `cashflow_per_tilstand[s]` |
+| $K_{ss'}(t)$ | `overgangscashflow` |
+| $\mathbb{E}[D(t)]$ | `forventet_depot` |
+| $\mathbb{E}[U(t)]$ | `forventet_ydelse` |
+| $\mathbb{E}[\text{PAL}(t)]$ | `forventet_pal_skat` |
+
+---
+
 ## Hvad Claude Code ikke må
 
 - Ændre diskretiseringsrækkefølgen uden godkendelse

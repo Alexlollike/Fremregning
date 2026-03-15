@@ -1,0 +1,138 @@
+"""
+tests/fixtures/markov_fixtures.py — standardfixtures til Markov-tests.
+
+Indeholder MarkovModel og MarkovProdukt instanser med kendte parametre
+til brug i analytiske kontrolcases.
+
+Tilstandsrum:
+    - 2-tilstand: aktiv, doed (reduktionscase til eksisterende model)
+    - 3-tilstand: aktiv, invalid, doed (fuld model med restitution)
+"""
+
+from pension.biometrics import BiometricModel
+from pension.markov import MarkovModel, Tilstand
+from pension.markov_produkt import MarkovProdukt, OvgangsCashflow, TilstandsCashflow
+
+# ---------------------------------------------------------------------------
+# Biometriske hjælpemodeller
+# ---------------------------------------------------------------------------
+
+NUL_BIOMETRI = BiometricModel(A=0.0, B=0.0, c=1.0)
+STANDARD_BIOMETRI = BiometricModel(A=0.0005, B=0.00007585775, c=1.09144)
+
+# ---------------------------------------------------------------------------
+# 2-tilstandsmodeller (aktiv / doed)
+# ---------------------------------------------------------------------------
+
+NUL_MARKOV_2 = MarkovModel(
+    tilstande=[
+        Tilstand("aktiv"),
+        Tilstand("doed", absorberende=True),
+    ],
+    intensiteter={},  # ingen overgange → π uforandret
+)
+
+STANDARD_MARKOV_2 = MarkovModel(
+    tilstande=[
+        Tilstand("aktiv"),
+        Tilstand("doed", absorberende=True),
+    ],
+    intensiteter={
+        ("aktiv", "doed"): STANDARD_BIOMETRI.intensitet,
+    },
+)
+
+# ---------------------------------------------------------------------------
+# 3-tilstandsmodeller (aktiv / invalid / doed)
+# ---------------------------------------------------------------------------
+
+# Nul-intensiteter: ingen overgange
+NUL_MARKOV_3 = MarkovModel(
+    tilstande=[
+        Tilstand("aktiv"),
+        Tilstand("invalid"),
+        Tilstand("doed", absorberende=True),
+    ],
+    intensiteter={},
+)
+
+# Standard 3-tilstandsmodel med restitution
+# μ_ai = 0.005 p.a. (invalidiseringsrate), μ_ia = 0.01 p.a. (restitutionsrate)
+# μ_id = 1.5 × standarddødelighed (forhøjet for invalide)
+STANDARD_MARKOV_3 = MarkovModel(
+    tilstande=[
+        Tilstand("aktiv"),
+        Tilstand("invalid"),
+        Tilstand("doed", absorberende=True),
+    ],
+    intensiteter={
+        ("aktiv",   "invalid"): lambda a: 0.005,
+        ("aktiv",   "doed"):    STANDARD_BIOMETRI.intensitet,
+        ("invalid", "aktiv"):   lambda a: 0.01,
+        ("invalid", "doed"):    lambda a: STANDARD_BIOMETRI.intensitet(a) * 1.5,
+    },
+)
+
+# ---------------------------------------------------------------------------
+# Produktfixtures
+# ---------------------------------------------------------------------------
+
+def simpelt_opsparingsprodukt(
+    depot: float,
+    praemie: float,
+    doedsfaldssum: float,
+    omkostningspct: float,
+    markov_model: MarkovModel,
+) -> MarkovProdukt:
+    """
+    Opsparingsprodukt med livsforsikring — ingen ydelse i opsparingsperioden.
+
+    Livsforsikringen (S) udbetales ved overgang til doed fra alle levende tilstande.
+    Nettorisiko = S − D_s(t); tilbagebetales til poolen ved negativ nettorisiko.
+
+    Parametre
+    ---------
+    depot : float
+        Startdepot D_0.
+    praemie : float
+        Månedlig præmie π.
+    doedsfaldssum : float
+        Dødsfaldsum S.
+    omkostningspct : float
+        Månedlig depotomkostning α.
+    markov_model : MarkovModel
+        Bruges til at finde levende (ikke-absorberende) tilstandsnavne.
+    """
+    levende = [t.navn for t in markov_model.tilstande if not t.absorberende]
+
+    tilstands_cf = [
+        TilstandsCashflow(s, lambda a, d, pi=praemie: pi, tidspunkt="pre")
+        for s in levende
+    ]
+
+    overgangs_cf = [
+        OvgangsCashflow(s, "doed", lambda a, d, S=doedsfaldssum: S - d)
+        for s in levende
+    ]
+
+    return MarkovProdukt(
+        navn="simpelt_opsparing",
+        tilstands_cashflows=tilstands_cf,
+        overgangscashflows=overgangs_cf,
+        omkostningspct=omkostningspct,
+        initial_depot={"aktiv": depot},
+    )
+
+
+def nul_produkt(depot: float, markov_model: MarkovModel) -> MarkovProdukt:
+    """
+    Minimalt produkt: ingen præmie, ingen ydelse, ingen livsforsikring.
+    Depot vokser kun ved investeringsafkast.
+    """
+    return MarkovProdukt(
+        navn="nul_produkt",
+        tilstands_cashflows=[],
+        overgangscashflows=[],
+        omkostningspct=0.0,
+        initial_depot={"aktiv": depot},
+    )
