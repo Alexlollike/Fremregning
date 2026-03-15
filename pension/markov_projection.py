@@ -21,9 +21,9 @@ Thiele-blanding (depotmixing):
         4. Post-cashflow for tilstand s (evalueret ved D_i).
 
 Fremregningsrækkefølge per trin:
-    1. Beregn D̂_{is} for alle overgangspar (i → s).
-    2. Bland: D_s(t+1) = Σ_i w_{is} · D̂_{is}  (vægtet med π_i · P_{is} / π_s(t+1)).
-    3. Opdater π(t+1) = π(t) · P(t).
+    1. Ét pass over (i, s): akkumulér depot_naeste_num[s], cashflow_s[i], pal_s[i].
+    2. Opdater π(t+1) = π(t) · P(t).
+    3. D_s(t+1) = depot_naeste_num[s] / π_s(t+1).
     4. Beregn forventede størrelser E[D], E[U], E[PAL].
 
 Ikke modificeret: pension/projection.py (2-tilstandsmodel bevares uændret).
@@ -162,17 +162,20 @@ def markov_projicér(
         p = model.p_matrix(alder)
 
         # ------------------------------------------------------------------
-        # Thiele-blanding:
-        # For hvert overgangspar (i → s) beregn D̂_{is}: depotet for en sti
-        # der starter i tilstand i med depot D_i og ender i tilstand s.
+        # Thiele-blanding — ét pass over alle overgangspar (i → s):
         #
-        # Evaluering: alle cashflow-funktioner evalueres ved D_i (afsenderdepot),
-        # da depotudviklingen er lineær i D og D_i er det kendte startdepot.
+        # For hvert kildepar bruges D_i = depot_s[i] (det kendte betingede
+        # depot i tilstand i). Alle cashflow-funktioner evalueres ved D_i.
+        # Resultater akkumuleres direkte; D̂_{is} gemmes ikke separat.
+        #
+        # depot_naeste_num[s] = Σ_i π_i · P_{is} · D̂_{is}   (tæller)
+        # cashflow_s[i]       = Σ_s P_{is} · (K_{is} + post_s)
+        # pal_s[i]            = Σ_s P_{is} · PAL_{is}
         # ------------------------------------------------------------------
 
-        # D_hat[(i_navn, s_navn)] og pal_hat[(i_navn, s_navn)]
-        D_hat: dict[tuple[str, str], float] = {}
-        pal_hat: dict[tuple[str, str], float] = {}
+        depot_naeste_num: dict[str, float] = {s: 0.0 for s in navne}
+        cashflow_s: dict[str, float] = {s: 0.0 for s in navne}
+        pal_s: dict[str, float] = {s: 0.0 for s in navne}
 
         for fra_t in model.tilstande:
             i_navn = fra_t.navn
@@ -188,6 +191,8 @@ def markov_projicér(
 
             for til_t in model.tilstande:
                 s_navn = til_t.navn
+                s_idx = indeks[s_navn]
+                p_is = p[i_idx][s_idx]
 
                 # Overgangscashflow K_{is}: 0 for selvovergang (i=s)
                 if i_navn == s_navn:
@@ -214,68 +219,24 @@ def markov_projicér(
                     if cf.tidspunkt == "post"
                 )
 
-                D_hat[(i_navn, s_navn)] = max(D_after_inv - post_s, 0.0)
-                pal_hat[(i_navn, s_navn)] = pal_is
+                D_hat_is = max(D_after_inv - post_s, 0.0)
+
+                depot_naeste_num[s_navn] += pi_t[i_idx] * p_is * D_hat_is
+                cashflow_s[i_navn] += p_is * (K_is + post_s)
+                pal_s[i_navn] += p_is * pal_is
 
         # Opdater π(t+1) = π(t) · P(t)
         pi_naeste = model.opdater_pi(pi, alder)
 
-        # ------------------------------------------------------------------
-        # D_s(t+1) = Σ_i π_i(t) · P_{is}(t) · D̂_{is}  /  π_s(t+1)
-        # ------------------------------------------------------------------
-        depot_efter_s: dict[str, float] = {}
-        for til_t in model.tilstande:
-            s_navn = til_t.navn
-            s_idx = indeks[s_navn]
-            pi_s_next = pi_naeste[s_idx]
-
-            if pi_s_next <= 0.0:
-                depot_efter_s[s_navn] = 0.0
-                continue
-
-            numerator = sum(
-                pi_t[indeks[i_navn]] * p[indeks[i_navn]][s_idx] * D_hat[(i_navn, s_navn)]
-                for i_navn in navne
+        # D_s(t+1) = depot_naeste_num[s] / π_s(t+1)
+        depot_efter_s: dict[str, float] = {
+            til_t.navn: (
+                depot_naeste_num[til_t.navn] / pi_naeste[indeks[til_t.navn]]
+                if pi_naeste[indeks[til_t.navn]] > 0.0
+                else 0.0
             )
-            depot_efter_s[s_navn] = numerator / pi_s_next
-
-        # ------------------------------------------------------------------
-        # Cashflow og PAL pr. afsendertilstand i (til E[U] og E[PAL])
-        # cashflow_i = Σ_s P_{is} · (K_{is} + post_s)
-        # pal_i      = Σ_s P_{is} · PAL_{is}
-        # ------------------------------------------------------------------
-        cashflow_s: dict[str, float] = {}
-        pal_s: dict[str, float] = {}
-
-        for fra_t in model.tilstande:
-            i_navn = fra_t.navn
-            i_idx = indeks[i_navn]
-            D_i = depot_start_t[i_navn]
-
-            cf_i = 0.0
-            pal_i = 0.0
-            for til_t in model.tilstande:
-                s_navn = til_t.navn
-                s_idx = indeks[s_navn]
-                p_is = p[i_idx][s_idx]
-
-                K_is = (
-                    0.0 if i_navn == s_navn
-                    else sum(
-                        ocf.beloeb(alder, D_i)
-                        for ocf in produkt.overgangscashflows_for(i_navn, s_navn)
-                    )
-                )
-                post_s_val = sum(
-                    cf.beloeb(alder, D_i)
-                    for cf in produkt.tilstands_cashflows_for(s_navn)
-                    if cf.tidspunkt == "post"
-                )
-                cf_i += p_is * (K_is + post_s_val)
-                pal_i += p_is * pal_hat[(i_navn, s_navn)]
-
-            cashflow_s[i_navn] = cf_i
-            pal_s[i_navn] = pal_i
+            for til_t in model.tilstande
+        }
 
         # Forventede størrelser
         forventet_depot = sum(pi_t[indeks[s]] * depot_start_t[s] for s in navne)
