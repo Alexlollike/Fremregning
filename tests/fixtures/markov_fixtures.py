@@ -7,6 +7,7 @@ til brug i analytiske kontrolcases.
 Tilstandsrum:
     - 2-tilstand: aktiv, doed (reduktionscase til eksisterende model)
     - 3-tilstand: aktiv, invalid, doed (fuld model med restitution)
+    - 4-tilstand: aktiv, invalid, genkøbt, doed (inkl. genkøbsabsorption)
 """
 
 from pension.biometrics import BiometricModel
@@ -74,6 +75,40 @@ STANDARD_MARKOV_3 = MarkovModel(
 )
 
 # ---------------------------------------------------------------------------
+# 4-tilstandsmodeller (aktiv / invalid / genkøbt / doed)
+# ---------------------------------------------------------------------------
+
+# Nul-intensiteter: ingen overgange
+NUL_MARKOV_4 = MarkovModel(
+    tilstande=[
+        Tilstand("aktiv"),
+        Tilstand("invalid"),
+        Tilstand("genkøbt", absorberende=True),
+        Tilstand("doed", absorberende=True),
+    ],
+    intensiteter={},
+)
+
+# Standard 4-tilstandsmodel: aktiv, invalid, genkøbt (lapsus), doed
+# μ_ag = 0.03 p.a. (genkøbsrate fra aktiv — kun opsparingsperioden)
+# Øvrige intensiteter som i STANDARD_MARKOV_3.
+STANDARD_MARKOV_4 = MarkovModel(
+    tilstande=[
+        Tilstand("aktiv"),
+        Tilstand("invalid"),
+        Tilstand("genkøbt", absorberende=True),
+        Tilstand("doed", absorberende=True),
+    ],
+    intensiteter={
+        ("aktiv",   "invalid"):  lambda a: 0.005,
+        ("aktiv",   "genkøbt"):  lambda a: 0.03,
+        ("aktiv",   "doed"):     STANDARD_BIOMETRI.intensitet,
+        ("invalid", "aktiv"):    lambda a: 0.01,
+        ("invalid", "doed"):     lambda a: STANDARD_BIOMETRI.intensitet(a) * 1.5,
+    },
+)
+
+# ---------------------------------------------------------------------------
 # Produktfixtures
 # ---------------------------------------------------------------------------
 
@@ -117,6 +152,63 @@ def simpelt_opsparingsprodukt(
 
     return MarkovProdukt(
         navn="simpelt_opsparing",
+        tilstands_cashflows=tilstands_cf,
+        overgangscashflows=overgangs_cf,
+        omkostningspct=omkostningspct,
+        initial_depot={"aktiv": depot},
+    )
+
+
+def simpelt_opsparingsprodukt_med_genkøb(
+    depot: float,
+    praemie: float,
+    doedsfaldssum: float,
+    genkøbsrate: float,
+    omkostningspct: float,
+    markov_model: MarkovModel,
+) -> MarkovProdukt:
+    """
+    Opsparingsprodukt med livsforsikring og genkøbsmulighed.
+
+    Bygger videre på `simpelt_opsparingsprodukt`:
+    - Præmie indbetales månedligt fra alle levende tilstande.
+    - Livsforsikringen (S − D) udbetales ved overgang til doed.
+    - Ved overgang aktiv → genkøbt udbetales hele depotet D_aktiv.
+
+    Parametre
+    ---------
+    depot : float
+        Startdepot D_0.
+    praemie : float
+        Månedlig præmie π.
+    doedsfaldssum : float
+        Dødsfaldsum S.
+    genkøbsrate : float
+        Ubrugt her — intensiteten styres af markov_model. Parameteren er med
+        for at gøre kaldsstedet selvdokumenterende.
+    omkostningspct : float
+        Månedlig depotomkostning α.
+    markov_model : MarkovModel
+        Skal indeholde tilstanden "genkøbt" som absorberende.
+    """
+    levende = [t.navn for t in markov_model.tilstande if not t.absorberende]
+
+    tilstands_cf = [
+        TilstandsCashflow(s, lambda a, d, pi=praemie: pi, tidspunkt="pre")
+        for s in levende
+    ]
+
+    overgangs_cf = [
+        OvgangsCashflow(s, "doed", lambda a, d, S=doedsfaldssum: S - d)
+        for s in levende
+    ]
+    # Genkøb: hele depotet udbetales ved overgang aktiv → genkøbt
+    overgangs_cf.append(
+        OvgangsCashflow("aktiv", "genkøbt", lambda a, d: d)
+    )
+
+    return MarkovProdukt(
+        navn="simpelt_opsparing_med_genkøb",
         tilstands_cashflows=tilstands_cf,
         overgangscashflows=overgangs_cf,
         omkostningspct=omkostningspct,
